@@ -1,5 +1,6 @@
 package fueltheburn.fueltheburn
 
+import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -9,6 +10,21 @@ import android.support.v7.app.AppCompatActivity
 import android.os.Bundle
 import java.nio.ByteBuffer
 import java.util.*
+import android.widget.Toast
+import android.Manifest.permission
+import android.Manifest.permission.ACCESS_FINE_LOCATION
+import android.Manifest.permission.ACCESS_COARSE_LOCATION
+import android.support.v4.app.ActivityCompat
+import android.content.pm.PackageManager
+import android.os.Build
+import android.support.annotation.RequiresApi
+import android.support.v4.content.ContextCompat
+import android.os.ParcelUuid
+import java.nio.ByteOrder
+import java.nio.ByteOrder.LITTLE_ENDIAN
+
+
+
 
 class MainActivity : AppCompatActivity() {
 
@@ -26,7 +42,20 @@ class MainActivity : AppCompatActivity() {
     private val BluetoothAdapter.isDisabled: Boolean
         get() = !isEnabled
 
+    @RequiresApi(Build.VERSION_CODES.M)
     override fun onCreate(savedInstanceState: Bundle?) {
+
+        val permissionCheck = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+        if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
+            if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.ACCESS_FINE_LOCATION)) {
+                Toast.makeText(this, "The permission to get BLE location data is required", Toast.LENGTH_SHORT).show()
+            } else {
+                requestPermissions(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION), 1)
+            }
+        } else {
+            Toast.makeText(this, "Location permissions already granted", Toast.LENGTH_SHORT).show()
+        }
+
         bluetoothAdapter
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -35,21 +64,56 @@ class MainActivity : AppCompatActivity() {
             startActivityForResult(enableBtIntent, 1)
         }
 
+        bluetoothAdapter?.startLeScan(Callback)
 
     }
 }
 
 object Callback : BluetoothAdapter.LeScanCallback {
 
-    fun parseAdvertisementData(scanRecord: ByteArray) {
-        val bundle: Bundle = Bundle()
-        val buf: ByteBuffer = ByteBuffer.wrap(scanRecord)
-        while(buf.remaining() > 0) {
+    fun parseAdvertisementData(scanRecord: ByteArray): Bundle {
+        val parsed: Bundle = Bundle()
+        val buffer: ByteBuffer = ByteBuffer.wrap(scanRecord)
+        while (true) {
+            val i = if (buffer.remaining() > 0) buffer.get() else 0
 
+
+            if (i == (0).toByte() || i > buffer.remaining())
+                break
+
+            val j = buffer.get()
+            val arrayOfByte = ByteArray(i - 1)
+            buffer.get(arrayOfByte)
+
+            when (j) {
+                (-1).toByte() -> {
+                    parsed.putByteArray("COMPANYCODE", Arrays.copyOfRange(arrayOfByte, 0, 2))
+                    parsed.putByteArray("MANUDATA", Arrays.copyOfRange(arrayOfByte, 2, arrayOfByte.size))
+                }
+                (6).toByte(), (7).toByte() -> parsed.putParcelableArrayList("SERVICES", parseUuids(arrayOfByte))
+                (9).toByte() -> parsed.putString("LOCALNAME", String(arrayOfByte))
+                else -> {
+                }
+            }
         }
+        return parsed
+    }
+
+    private fun parseUuids(paramArrayOfByte: ByteArray): ArrayList<ParcelUuid> {
+        val localByteBuffer = ByteBuffer.wrap(paramArrayOfByte)
+        localByteBuffer.order(ByteOrder.LITTLE_ENDIAN)
+        val localArrayList: ArrayList<ParcelUuid> = arrayListOf()
+        while (localByteBuffer.remaining() >= 16) {
+            val l = localByteBuffer.long
+            localArrayList.add(ParcelUuid(UUID(localByteBuffer
+                    .long, l)))
+        }
+        return localArrayList
     }
 
     override fun onLeScan(device: BluetoothDevice?, rssi: Int, scanrecord: ByteArray?) {
 
+        val companycode: ByteArray = (parseAdvertisementData(scanrecord!!).get("COMPANYCODE") ?: byteArrayOf(0,0)) as ByteArray
+        println("${companycode[0]}, ${companycode[1]}")
     }
 }
