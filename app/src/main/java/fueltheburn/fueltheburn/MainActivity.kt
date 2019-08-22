@@ -1,9 +1,6 @@
 package fueltheburn.fueltheburn
 
 import android.Manifest
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.support.v7.app.AppCompatActivity
@@ -14,25 +11,27 @@ import android.widget.Toast
 import android.Manifest.permission
 import android.Manifest.permission.ACCESS_FINE_LOCATION
 import android.Manifest.permission.ACCESS_COARSE_LOCATION
+import android.bluetooth.*
 import android.support.v4.app.ActivityCompat
 import android.content.pm.PackageManager
 import android.os.Build
 import android.support.annotation.RequiresApi
 import android.support.v4.content.ContextCompat
 import android.os.ParcelUuid
+import android.util.Log
+import com.beepiz.bluetooth.gattcoroutines.GattConnection
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.nio.ByteOrder
 import java.nio.ByteOrder.LITTLE_ENDIAN
-
-
+import java.util.logging.Logger
 
 
 class MainActivity : AppCompatActivity() {
 
     private val CLIENT_CHARACTERISTIC_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
-    private val COPPERHEAD_CMD_UUID = UUID.fromString("c7d25540-31dd-11e2-81c1-0800200c9a66")
-    private val COPPERHEAD_RSP_UUID = UUID.fromString("d36f33f0-31dd-11e2-81c1-0800200c9a66")
-    private val COPPERHEAD_SERVICE_UUID = UUID.fromString("83cdc410-31dd-11e2-81c1-0800200c9a66")
 
     private val bluetoothAdapter: BluetoothAdapter? by lazy(LazyThreadSafetyMode.NONE) {
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -70,6 +69,10 @@ class MainActivity : AppCompatActivity() {
 }
 
 object Callback : BluetoothAdapter.LeScanCallback {
+
+    private val COPPERHEAD_CMD_UUID = UUID.fromString("c7d25540-31dd-11e2-81c1-0800200c9a66")
+    private val COPPERHEAD_RSP_UUID = UUID.fromString("d36f33f0-31dd-11e2-81c1-0800200c9a66")
+    private val COPPERHEAD_SERVICE_UUID = UUID.fromString("83cdc410-31dd-11e2-81c1-0800200c9a66")
 
     fun parseAdvertisementData(scanRecord: ByteArray): Bundle {
         val parsed: Bundle = Bundle()
@@ -113,7 +116,49 @@ object Callback : BluetoothAdapter.LeScanCallback {
 
     override fun onLeScan(device: BluetoothDevice?, rssi: Int, scanrecord: ByteArray?) {
 
-        val companycode: ByteArray = (parseAdvertisementData(scanrecord!!).get("COMPANYCODE") ?: byteArrayOf(0,0)) as ByteArray
-        println("${companycode[0]}, ${companycode[1]}")
+        val companycode: ByteArray = (parseAdvertisementData(scanrecord!!).get("COMPANYCODE")
+                ?: byteArrayOf(0, 0)) as ByteArray
+        if (companycode[1] == 120.toByte()) {
+            GlobalScope.launch {
+                val deviceConnection = GattConnection(device!!)
+                val _CopperheadService = deviceConnection.getService(COPPERHEAD_SERVICE_UUID)
+                if (_CopperheadService == null) {
+                    Log.e("fueltheburn", "No Copperhead service found.");
+                    cancel()
+                }
+                val _CommandChannel = _CopperheadService!!.getCharacteristic(COPPERHEAD_CMD_UUID);
+                val _ResponseChannel = _CopperheadService.getCharacteristic(COPPERHEAD_RSP_UUID);
+                try {
+                    deviceConnection.connect()
+                    deviceConnection.discoverServices()
+                    _CommandChannel.value = byteArrayOf()
+                    deviceConnection.writeCharacteristic(_CommandChannel)
+
+                } finally {
+
+                }
+            }
+        }
+    }
+}
+
+suspend fun BluetoothDevice.logGattServices(tag: String = "BleGattCoroutines") {
+    val deviceConnection = GattConnection(bluetoothDevice = this@logGattServices)
+    try {
+        deviceConnection.connect() // Suspends until connection is established
+        val gattServices = deviceConnection.discoverServices() // Suspends until completed
+        gattServices.forEach {
+            it.characteristics.forEach {
+                try {
+                    deviceConnection.readCharacteristic(it) // Suspends until characteristic is read
+                } catch (e: Exception) {
+                    Log.e(tag, "Couldn't read characteristic with uuid: ${it.uuid}", e)
+                }
+            }
+
+            Log.d(tag, it.type.toString())
+        }
+    } finally {
+        deviceConnection.close() // Close when no longer used. Also triggers disconnect by default.
     }
 }
