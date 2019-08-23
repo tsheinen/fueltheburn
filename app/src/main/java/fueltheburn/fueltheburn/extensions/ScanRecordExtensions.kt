@@ -14,6 +14,8 @@ fun ScanRecord.getAdvertisementData(): Bundle {
     while (buffer.remaining() > 0) {
         val size = buffer.get()
         val identifier = buffer.get()
+        if( size == 0.toByte() || size > buffer.remaining() )
+            break;
         val data = ByteArray(size - 1)
         buffer.get(data)
 

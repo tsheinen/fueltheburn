@@ -1,14 +1,36 @@
 package fueltheburn.fueltheburn
 
-import java.util.zip.CRC32
-import kotlin.reflect.KMutableProperty
-import kotlin.reflect.full.memberProperties
-import kotlin.reflect.full.superclasses
-class CRC32 : CRC32 {
+import java.lang.reflect.Field
+import java.security.InvalidParameterException
 
-    // you might ask, why on earth did you do this abomination?  now thats a really good question and I have no answer
-    constructor() : super() {
-        val crc: KMutableProperty<*>? = this::class.superclasses.first().memberProperties.filterIsInstance<KMutableProperty<*>>().find { it.name == "crc" }
-        crc!!.setter.call(this, -1)
+class CRC32 {
+
+    private val CRCPOLY = 79764919
+    private val INITIAL_VALUE = -1
+    private var mValue = -1
+
+    fun getValue(): Int {
+        return this.mValue
+    }
+
+    fun reset() {
+        this.mValue = -1
+    }
+
+    @Throws(InvalidParameterException::class)
+    fun update(array: ByteArray) {
+        if (array.size % 4 != 0) {
+            throw InvalidParameterException("Length of data must be a multiple of 4")
+        }
+        for (i in array.indices) {
+            this.mValue = this.mValue xor (array[i xor 0x3].toInt() shl 24)
+            for (j in 0..7) {
+                if (Integer.MIN_VALUE and this.mValue != 0x0) {
+                    this.mValue = 0x4C11DB7 xor (this.mValue shl 1)
+                } else {
+                    this.mValue = this.mValue shl 1
+                }
+            }
+        }
     }
 }
