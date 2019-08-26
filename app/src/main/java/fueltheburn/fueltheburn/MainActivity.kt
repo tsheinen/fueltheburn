@@ -15,6 +15,13 @@ import android.widget.Toast
 
 
 class MainActivity : AppCompatActivity() {
+    companion object {
+        var context: Context? = null
+    }
+
+    init {
+        context = this
+    }
 
     private val bluetoothAdapter: BluetoothAdapter? by lazy(LazyThreadSafetyMode.NONE) {
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
